@@ -5,13 +5,10 @@
         <color android:color="#080C14" />
     </item>
 
-    <!-- Centered high-resolution Scrcpic 3D Logo -->
+    <!-- Centered high-resolution Scrcpic 3D Logo with full branding and zero clipping -->
     <item
-        android:width="128dp"
-        android:height="128dp"
-        android:gravity="center">
-        <bitmap
-            android:gravity="center"
-            android:src="@drawable/app_logo" />
-    </item>
+        android:width="200dp"
+        android:height="200dp"
+        android:gravity="center"
+        android:drawable="@drawable/splash_logo" />
 </layer-list>

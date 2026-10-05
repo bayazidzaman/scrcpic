@@ -4,8 +4,7 @@
     <style name="Theme.Scrcpic" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">#080C14</item>
         <item name="android:windowSplashScreenBackground">#080C14</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/app_logo</item>
-        <item name="android:windowSplashScreenIconBackgroundColor">#080C14</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_logo</item>
         <item name="android:statusBarColor">#080C14</item>
         <item name="android:navigationBarColor">#080C14</item>
         <item name="android:windowLightStatusBar">false</item>
