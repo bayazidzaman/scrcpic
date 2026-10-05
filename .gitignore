@@ -1,0 +1,16 @@
+*.iml
+.gradle
+/local.properties
+local.properties
+.idea/
+.DS_Store
+/build
+app/build
+build/
+/captures
+.externalNativeBuild
+.cxx
+*.apk
+*.dex
+.kotlin
+scrcpy-win64-v4.1/
