@@ -21,7 +21,7 @@
   <a href="https://github.com/bayazidzaman/scrcpic/releases/latest">
     <img src="https://img.shields.io/github/v/release/bayazidzaman/scrcpic?style=for-the-badge&color=22C55E&label=Latest%20Release" alt="Latest Release"/>
   </a>
-  <a href="https://github.com/bayazidzaman/scrcpic/releases/download/v1.0.0/Scrcpic-v1.0.0-release.apk">
+  <a href="https://github.com/bayazidzaman/scrcpic/releases/download/v1.1.0/Scrcpic-v1.1.0-release.apk">
     <img src="https://img.shields.io/badge/Download-Latest%20APK-0EA5E9?style=for-the-badge&logo=android&logoColor=white" alt="Download APK"/>
   </a>
 </p>
