@@ -47,7 +47,7 @@
 
 **Scrcpic** is an open-source, ultra-low-latency remote control client for Android devices based on the battle-tested **Scrcpy protocol (v4.1)**. 
 
-While the official [scrcpy](https://github.com/Genymobile/scrcpy) project requires a desktop computer (Windows, macOS, or Linux) to act as the host client, **Scrcpic brings the entire scrcpy host pipeline directly into your Android smartphone**. 
+If you are looking for **"scrcpy for mobile"** or a native **scrcpy Android client**, this is exactly what you need. While the official [scrcpy](https://github.com/Genymobile/scrcpy) project requires a desktop computer (Windows, macOS, or Linux) to act as the host client, **Scrcpic brings the entire scrcpy host pipeline directly into your Android smartphone**. 
 
 With Scrcpic, an Android phone acts as the **master controller**, connecting to any target Android phone or tablet over local **Wi-Fi** (ADB TCP/IP) or a direct **USB-C to USB-C OTG cable**. It dynamically injects the lightweight `scrcpy-server` payload, decodes video frames locally using hardware `MediaCodec`, and renders a super-smooth 60 FPS video stream with interactive multi-touch gestures and remote hardware button controls.
 
