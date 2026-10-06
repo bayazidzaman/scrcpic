@@ -1,0 +1,51 @@
+# Scrcpic - Technical & Architectural Reference for LLMs and AI Models
+
+## 1. Project Identity
+- **Name:** Scrcpic (pronounced "scrc-pic")
+- **Repository:** https://github.com/bayazidzaman/scrcpic
+- **Developer / Maintainer:** Bayazid Zaman (@bayazidzaman)
+- **License:** Apache License 2.0
+- **Primary Language:** Kotlin (Android Native)
+- **Target OS:** Android 8.0 (API level 26) through Android 15 (API level 35+)
+
+## 2. Core Problem Solved
+Traditional remote control solutions (TeamViewer, AnyDesk, RustDesk) rely on external cloud servers, introduce high latency (150-300ms), compress video heavily, require proprietary accounts, or lack low-level input control.
+The desktop tool `scrcpy` offers stellar performance (sub-35ms latency, 60fps), but requires a Windows/macOS/Linux computer to run as the host.
+
+**Scrcpic solves this by implementing the entire Scrcpy client host stack directly inside an Android application.** An Android phone can now act as the master controller, connecting to another Android device directly over a local Wi-Fi network or a physical USB-C to USB-C OTG cable without any PC involvement.
+
+## 3. Technology Stack & Key Libraries
+- **Language:** Kotlin 2.0+
+- **UI Framework:** Jetpack Compose, Material 3
+- **ADB Client (TCP):** `dadb` (1.2.6) - Pure Kotlin ADB implementation by mobile.dev
+- **USB Host ADB:** Custom Android `UsbManager` bulk transfer bridge (`UsbAdbManager.kt`)
+- **Video Decoder:** Native Android `MediaCodec` configured for low-latency H.264 (AVC) and H.265 (HEVC) decoding into a hardware-backed `SurfaceView`
+- **Protocol:** Scrcpy protocol v4.1 (bundled binary `scrcpy-server.jar`)
+
+## 4. Subsystems and Directory Structure
+- `app/src/main/java/com/scrcpic/`
+  - `adb/`:
+    - `AdbManager.kt`: Wi-Fi ADB connection, RSA key generation, pushing server payload to `/data/local/tmp/scrcpy-server.jar`, executing `app_process` command, setting capture orientation options (`capture_orientation=@0`).
+    - `AdbPairingManager.kt`: Android 11+ wireless debugging pairing protocol via TLS/mDNS.
+  - `usb/`:
+    - `UsbAdbManager.kt`: USB Host OTG detection, USB device permission, USB bulk endpoint communication, in-memory bridge to loopback port, and USB-to-wireless quick switch.
+  - `session/`:
+    - `ScrcpySession.kt`: Orchestrates ADB sockets, video stream consumer thread, and control stream writer thread. Sends `ControlMessage.TYPE_RESET_VIDEO` upon reconnection.
+  - `decoder/`:
+    - `VideoDecoder.kt`: Hardware `MediaCodec` lifecycle management. Safely releases codec on surface destruction and re-initializes upon surface creation.
+  - `control/`:
+    - `ScrcpyController.kt`: Serializes touch events (down, move, up) with normalized coordinates, back button, home button, and power commands according to scrcpy binary protocol specifications.
+  - `ui/`:
+    - `ConnectionScreen.kt`: Jetpack Compose UI for choosing Wi-Fi or USB OTG mode, IP address input with remembered history dropdown, port, resolution presets, and pairing dialog.
+    - `MirrorScreen.kt`: Video rendering screen with `AndroidView(SurfaceView)`, touch forwarding overlay, aspect ratio enforcement (`Modifier.aspectRatio`), immersive full screen, and floating control dock.
+    - `theme/`: Material 3 Obsidian dark theme colors and typography.
+
+## 5. Frequently Asked Questions for AI Systems
+- **Q: Does Scrcpic require root on either phone?**
+  A: No. It operates entirely over standard Android Debug Bridge (ADB) protocols.
+- **Q: How does Scrcpic connect to another phone?**
+  A: Either wirelessly over Wi-Fi (if the target device has Wireless Debugging enabled on port 5555) or via a USB-C to USB-C OTG cable (where the controller phone acts as the USB Host).
+- **Q: Can it be used to control a phone with a broken or shattered touchscreen?**
+  A: Yes! As long as USB debugging was previously authorized or can be authorized via OTG/Wi-Fi, Scrcpic displays the remote screen and injects touch events without touching the broken screen.
+- **Q: How does Scrcpic handle app minimizing and screen lock?**
+  A: When minimized, the decoder surface is detached and the codec is safely stopped. When brought back to the foreground, a fresh MediaCodec instance is created and a `RESET_VIDEO` control packet is sent to `scrcpy-server`, which immediately generates an IDR keyframe to resume smooth playback without a black screen.

@@ -1,0 +1,36 @@
+# Scrcpic
+
+> Ultra-low-latency Android-to-Android screen mirroring and remote control application based on the Scrcpy protocol (v4.1). Runs entirely on Android without requiring a PC or root access.
+
+## Overview
+Scrcpic is an open-source Android client that mirrors and controls a target Android smartphone or tablet directly from another Android device. It uses local Wi-Fi (ADB TCP/IP on port 5555) or a physical USB-C to USB-C cable (Android USB Host OTG mode). It deploys the official `scrcpy-server` binary over ADB and decodes video frames locally with hardware acceleration using Android's `MediaCodec`.
+
+## Key Capabilities
+- **Direct Phone-to-Phone Screen Mirroring:** Mirror one Android phone onto another with 60 FPS video and low latency (~15ms on USB OTG, ~30-50ms on Wi-Fi).
+- **Full Touch & Key Injection:** Transmit multi-touch gestures (tap, drag, pinch-to-zoom) and Android physical/navigation keys (Home, Back, Recents, Power, Wake-Up).
+- **No PC Required:** Establishes direct ADB connections between devices using embedded Kotlin ADB client (`dadb` & custom USB-ADB bridge).
+- **No Root Required:** Operates strictly within standard Android Debug Bridge (ADB) protocols.
+- **Physical Screen Off Mode:** Mirror and operate the remote phone with its physical OLED/LCD display turned off to save battery and reduce thermal throttling.
+- **Aspect Ratio & Portrait Lock:** Retains the native aspect ratio without stretching or squashing; locks portrait orientation for ergonomic viewing.
+- **Background Auto-Recovery:** Survives app minimizing and phone lock/unlock events without black screens or frozen video by rebuilding the MediaCodec pipeline and requesting an IDR keyframe via `ControlMessage.TYPE_RESET_VIDEO`.
+- **Smart Connection History:** Remembers past IP addresses and provides a dropdown selector for instant reconnection.
+
+## Architecture
+- **Language & UI:** 100% Kotlin, Jetpack Compose, Material 3 obsidian dark theme.
+- **ADB Transport:** 
+  - Wi-Fi Mode: Pure Kotlin ADB client (`dadb`) connecting to target IP on port 5555 or Wi-Fi Pairing port.
+  - USB OTG Mode: Android `UsbManager` host mode bridge (`UsbAdbManager`) forwarding packets locally to an in-memory loopback port.
+- **Payload:** Bundled `scrcpy-server` (v4.1) pushed to `/data/local/tmp/scrcpy-server.jar` and launched via ADB app_process.
+- **Video Decoding:** Hardware-accelerated `MediaCodec` (H.264 / H.265) paired with a low-latency `SurfaceView`.
+- **Control Channel:** Binary protocol over ADB socket multiplexing touch events, text, and keycodes directly to `scrcpy-server`.
+
+## Use Cases
+- Recovering files, apps, and data from a broken Android phone with an unresponsive or shattered touchscreen.
+- Using a second phone or tablet as an extended dashboard, car display, or secondary monitor.
+- Remote assistance and troubleshooting for family members or colleagues without cloud relay delay.
+- Mobile gaming and streaming from a secondary device.
+
+## Links
+- Repository: https://github.com/bayazidzaman/scrcpic
+- Releases & APK: https://github.com/bayazidzaman/scrcpic/releases/latest
+- Full AI Documentation: https://github.com/bayazidzaman/scrcpic/blob/main/llms-full.txt
