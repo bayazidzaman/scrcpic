@@ -40,7 +40,9 @@ Unlike conventional screen sharing apps that require an intermediary computer, c
 
 - ⚡ **Zero-Lag Hardware Video Pipeline:** Direct H.264/H.265 video decoding using Android's native `MediaCodec` and `SurfaceView` with low-latency flags.
 - 🎮 **Full Remote Input Injection:** High-precision touch events (down, move, up), multi-touch gesture forwarding, and remote Android navigation buttons (Home, Back, Recents, Power, Wake-Up).
-- 🔄 **Smart Auto-Recovery & Instant Reconnect:** Resolves Android/MIUI surface-destruction bugs when locking or minimizing the phone. Screen unlocks and resumes instantly restore live video without black-screen hangs.
+- 🔄 **Smart Auto-Recovery & Instant Reconnect:** Completely rock-solid background lifecycle! App minimizes or phone screen locks no longer cause black screens or frozen streams. A dedicated session reset mechanism forces an instant IDR frame generation upon return, guaranteeing a seamless resume every time.
+- 📐 **Perfect Aspect Ratio Scaling:** The remote display always maintains its native proportions (no stretching or squashing) regardless of the screen size differences, and stays permanently locked in portrait format for optimal one-handed viewing.
+- 🧠 **Smart Connection Memory:** Built-in IP address history with a convenient dropdown menu to quickly reconnect to all your previously used devices without having to re-type IPs.
 - 🔌 **Dual Connection Modes:**
   - **Wi-Fi Mode:** Connect to any phone on your local network with Wi-Fi Debugging enabled (port 5555).
   - **USB Cable Mode (OTG):** Direct phone-to-phone connection using a standard USB-C to USB-C cable.

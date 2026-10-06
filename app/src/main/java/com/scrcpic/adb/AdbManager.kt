@@ -41,9 +41,21 @@ class AdbManager(private val context: Context) {
         disconnect()
         val keyPair = getOrCreateKeyPair()
         Log.d(TAG, "Connecting to ADB target $host:$port...")
-        val instance = Dadb.create(host, port, keyPair)
-        dadb = instance
-        instance
+        var lastError: Throwable? = null
+        for (attempt in 1..3) {
+            try {
+                val instance = Dadb.create(host, port, keyPair)
+                dadb = instance
+                return@withContext instance
+            } catch (e: Throwable) {
+                lastError = e
+                Log.w(TAG, "ADB connect attempt $attempt failed: ${e.message}")
+                if (attempt < 3) {
+                    kotlinx.coroutines.delay(300)
+                }
+            }
+        }
+        throw lastError ?: IllegalStateException("Failed to connect to ADB target $host:$port")
     }
 
     private var isServerPushed = false
@@ -55,9 +67,10 @@ class AdbManager(private val context: Context) {
         }
         val currentDadb = dadb ?: throw IllegalStateException("Not connected to ADB")
         
-        // Extract asset to local cache file first
+        // Extract asset to local cache file first (validate size against bundled asset)
+        val assetLength = context.assets.open("scrcpy-server.jar").use { it.available().toLong() }
         val localJar = File(context.cacheDir, "scrcpy-server.jar")
-        if (!localJar.exists() || localJar.length() == 0L) {
+        if (!localJar.exists() || localJar.length() != assetLength) {
             context.assets.open("scrcpy-server.jar").use { input ->
                 FileOutputStream(localJar).use { output ->
                     input.copyTo(output)
@@ -80,14 +93,23 @@ class AdbManager(private val context: Context) {
     ): AdbShellStream = withContext(Dispatchers.IO) {
         val currentDadb = dadb ?: throw IllegalStateException("Not connected to ADB")
         
+        // Kill any lingering scrcpy-server process on the target phone to prevent abstract socket conflicts
+        try {
+            currentDadb.shell("pkill -f com.genymobile.scrcpy.Server 2>/dev/null || true")
+        } catch (e: Exception) {
+            Log.d(TAG, "Lingering scrcpy server cleanup: ${e.message}")
+        }
+
         // Omitting scid allows the server to create the default socket name 'localabstract:scrcpy'
         // tunnel_forward=true: Server creates localabstract:scrcpy and waits for client connections
         // audio=false: Focus on video and touch responsiveness
         // control=true: Enable touch/keyboard injection
         // send_frame_meta=true: 12-byte packet headers (PTS + packet size)
+        // send_frame_meta=true: 12-byte packet headers (PTS + packet size)
+        // capture_orientation=@0: Leading '@' locks the capture orientation permanently to 0 (portrait)
         val cmd = "CLASSPATH=$REMOTE_SERVER_PATH app_process / com.genymobile.scrcpy.Server $version " +
                 "tunnel_forward=true audio=false control=true send_frame_meta=true stay_awake=true " +
-                "max_size=$maxSize video_bit_rate=$bitRate max_fps=$maxFps"
+                "max_size=$maxSize video_bit_rate=$bitRate max_fps=$maxFps codec_options=i-frame-interval=1 capture_orientation=@0"
 
         Log.d(TAG, "Executing scrcpy-server shell command: $cmd")
         val stream = currentDadb.openShell(cmd)
@@ -101,6 +123,7 @@ class AdbManager(private val context: Context) {
     }
 
     fun disconnect() {
+        isServerPushed = false
         try {
             shellStream?.close()
         } catch (_: Exception) {}

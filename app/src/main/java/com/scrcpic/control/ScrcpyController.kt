@@ -99,4 +99,16 @@ class ScrcpyController(
     fun resetVideo() {
         sendRaw(ControlMessage.createResetVideo())
     }
+
+    fun expandNotificationPanel() {
+        sendRaw(ControlMessage.createExpandNotificationPanel())
+    }
+
+    fun expandSettingsPanel() {
+        sendRaw(ControlMessage.createExpandSettingsPanel())
+    }
+
+    fun collapsePanels() {
+        sendRaw(ControlMessage.createCollapsePanels())
+    }
 }

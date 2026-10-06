@@ -2,6 +2,7 @@ package com.scrcpic.ui
 
 import android.annotation.SuppressLint
 import android.content.pm.ActivityInfo
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -9,17 +10,20 @@ import androidx.activity.ComponentActivity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -31,14 +35,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CropSquare
 import androidx.compose.material.icons.filled.FiberManualRecord
-import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -49,19 +49,23 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.scrcpic.control.ControlMessage
 import com.scrcpic.scrcpy.ScrcpySession
 import com.scrcpic.scrcpy.SessionState
+import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 
 @SuppressLint("ClickableViewAccessibility")
 @Composable
@@ -82,7 +86,6 @@ fun MirrorScreen(
     val fps by session.fps.collectAsState()
 
     var showControls by remember { mutableStateOf(true) }
-    var isLandscape by remember { mutableStateOf(false) }
     var isPhysicalScreenOff by remember { mutableStateOf(initialScreenOff) }
 
     LaunchedEffect(sessionState) {
@@ -93,44 +96,79 @@ fun MirrorScreen(
     }
 
     DisposableEffect(Unit) {
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         onDispose {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             session.controller?.setScreenPowerMode(true)
             session.disconnect()
         }
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // 1. Hardware Video Rendering View with Touch Input
-        AndroidView(
+        val density = LocalDensity.current
+        val fabSizePx = with(density) { 46.dp.toPx() }
+        val maxFabX = (constraints.maxWidth - fabSizePx).coerceAtLeast(0f)
+        val maxFabY = (constraints.maxHeight - fabSizePx).coerceAtLeast(0f)
+
+        var fabOffsetX by remember { mutableStateOf(-1f) }
+        var fabOffsetY by remember { mutableStateOf(-1f) }
+
+        LaunchedEffect(constraints.maxWidth, constraints.maxHeight) {
+            if (fabOffsetX < 0f && constraints.maxWidth > 0) {
+                fabOffsetX = maxFabX - with(density) { 16.dp.toPx() }
+                fabOffsetY = with(density) { 68.dp.toPx() }
+            }
+        }
+
+        val state = sessionState
+        val videoRatio = if (state is SessionState.Connected && state.height > 0) {
+            state.width.toFloat() / state.height.toFloat()
+        } else {
+            null
+        }
+
+        // 1. Hardware Video Rendering View with Edge Gesture & Touch Detection
+        Box(
             modifier = Modifier.fillMaxSize(),
-            factory = { ctx ->
-                SurfaceView(ctx).apply {
+            contentAlignment = Alignment.Center
+        ) {
+            AndroidView(
+                modifier = if (videoRatio != null) {
+                    Modifier.aspectRatio(videoRatio)
+                } else {
+                    Modifier.fillMaxSize()
+                },
+                factory = { ctx ->
+                    SurfaceView(ctx).apply {
                     isClickable = true
                     isFocusable = true
 
                     holder.addCallback(object : SurfaceHolder.Callback {
                         override fun surfaceCreated(holder: SurfaceHolder) {
-                            if (isUsb) {
-                                session.connectUsb(
-                                    surface = holder.surface,
-                                    maxSize = preset.maxSize,
-                                    bitRate = preset.bitRate,
-                                    maxFps = preset.maxFps
-                                )
+                            if (session.isSessionAlive()) {
+                                session.onSurfaceRestored(holder.surface)
                             } else {
-                                session.connect(
-                                    host = targetIp,
-                                    port = targetPort,
-                                    surface = holder.surface,
-                                    maxSize = preset.maxSize,
-                                    bitRate = preset.bitRate,
-                                    maxFps = preset.maxFps
-                                )
+                                if (isUsb) {
+                                    session.connectUsb(
+                                        surface = holder.surface,
+                                        maxSize = preset.maxSize,
+                                        bitRate = preset.bitRate,
+                                        maxFps = preset.maxFps
+                                    )
+                                } else {
+                                    session.connect(
+                                        host = targetIp,
+                                        port = targetPort,
+                                        surface = holder.surface,
+                                        maxSize = preset.maxSize,
+                                        bitRate = preset.bitRate,
+                                        maxFps = preset.maxFps
+                                    )
+                                }
                             }
                         }
 
@@ -144,10 +182,17 @@ fun MirrorScreen(
                         }
 
                         override fun surfaceDestroyed(holder: SurfaceHolder) {
+                            // Keep ADB stream & scrcpy-server alive in background across lock / minimize
                             session.notifySurfaceDestroyed()
-                            session.disconnect(clearError = false)
                         }
                     })
+
+                    var downX = 0f
+                    var downY = 0f
+                    var downTime = 0L
+                    var gestureConsumed = false
+                    var isTopEdge = false
+                    var isBottomEdge = false
 
                     setOnTouchListener { v, event ->
                         val ctrl = session.controller
@@ -155,32 +200,147 @@ fun MirrorScreen(
                         val videoH = session.scrcpyVideoHeight
 
                         if (ctrl != null && videoW > 0 && videoH > 0) {
-                            val action = when (event.actionMasked) {
-                                MotionEvent.ACTION_DOWN -> ControlMessage.ACTION_DOWN
-                                MotionEvent.ACTION_MOVE -> ControlMessage.ACTION_MOVE
-                                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> ControlMessage.ACTION_UP
-                                else -> -1
-                            }
+                            val dispDensity = v.resources.displayMetrics.density
+                            val edgeThreshold = 55f * dispDensity // 55dp top/bottom edge trigger zone
+                            val triggerDistance = 40f * dispDensity // 40dp swipe movement
 
-                            if (action != -1) {
-                                session.coordinateTransformer.updateDimensions(
-                                    videoW = videoW,
-                                    videoH = videoH,
-                                    containerW = v.width,
-                                    containerH = v.height
-                                )
+                            when (event.actionMasked) {
+                                MotionEvent.ACTION_DOWN -> {
+                                    downX = event.x
+                                    downY = event.y
+                                    downTime = event.eventTime
+                                    gestureConsumed = false
+                                    isTopEdge = downY <= edgeThreshold
+                                    isBottomEdge = downY >= (v.height - edgeThreshold)
 
-                                val targetPoint = session.coordinateTransformer.toTargetCoordinates(event.x, event.y)
-                                if (targetPoint != null) {
-                                    ctrl.sendTouchEvent(
-                                        action = action,
-                                        pointerId = event.getPointerId(event.actionIndex).toLong(),
-                                        x = targetPoint.x,
-                                        y = targetPoint.y,
-                                        screenWidth = videoW,
-                                        screenHeight = videoH,
-                                        pressure = event.pressure
-                                    )
+                                    // If not starting in an edge zone, forward DOWN immediately for instant touch response
+                                    if (!isTopEdge && !isBottomEdge) {
+                                        session.coordinateTransformer.updateDimensions(
+                                            videoW = videoW,
+                                            videoH = videoH,
+                                            containerW = v.width,
+                                            containerH = v.height
+                                        )
+                                        val targetPoint = session.coordinateTransformer.toTargetCoordinates(event.x, event.y)
+                                        if (targetPoint != null) {
+                                            ctrl.sendTouchEvent(
+                                                action = ControlMessage.ACTION_DOWN,
+                                                pointerId = event.getPointerId(0).toLong(),
+                                                x = targetPoint.x,
+                                                y = targetPoint.y,
+                                                screenWidth = videoW,
+                                                screenHeight = videoH,
+                                                pressure = event.pressure
+                                            )
+                                        }
+                                    }
+                                }
+
+                                MotionEvent.ACTION_MOVE -> {
+                                    val deltaX = event.x - downX
+                                    val deltaY = event.y - downY
+                                    val absDeltaX = kotlin.math.abs(deltaX)
+                                    val absDeltaY = kotlin.math.abs(deltaY)
+
+                                    if (!gestureConsumed) {
+                                        if (isTopEdge && deltaY > triggerDistance && absDeltaY > absDeltaX * 1.1f) {
+                                            // Top Edge Swipe Down: Pull down remote notifications!
+                                            gestureConsumed = true
+                                            v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                                            ctrl.expandNotificationPanel()
+                                        } else if (isBottomEdge && deltaY < -triggerDistance && absDeltaY > absDeltaX * 1.1f) {
+                                            // Bottom Edge Swipe Up: Remote Home (Minimize) or Recents
+                                            gestureConsumed = true
+                                            v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                                            val elapsed = event.eventTime - downTime
+                                            if (elapsed >= 350L) {
+                                                ctrl.sendRecents()
+                                            } else {
+                                                ctrl.sendHome()
+                                            }
+                                        } else if (!isTopEdge && !isBottomEdge) {
+                                            // Normal touch move in content area
+                                            session.coordinateTransformer.updateDimensions(
+                                                videoW = videoW,
+                                                videoH = videoH,
+                                                containerW = v.width,
+                                                containerH = v.height
+                                            )
+                                            val targetPoint = session.coordinateTransformer.toTargetCoordinates(event.x, event.y)
+                                            if (targetPoint != null) {
+                                                ctrl.sendTouchEvent(
+                                                    action = ControlMessage.ACTION_MOVE,
+                                                    pointerId = event.getPointerId(0).toLong(),
+                                                    x = targetPoint.x,
+                                                    y = targetPoint.y,
+                                                    screenWidth = videoW,
+                                                    screenHeight = videoH,
+                                                    pressure = event.pressure
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                                    if (gestureConsumed) {
+                                        // Gesture executed; reset
+                                        gestureConsumed = false
+                                        isTopEdge = false
+                                        isBottomEdge = false
+                                    } else if (isTopEdge || isBottomEdge) {
+                                        // Tap in edge zone without swipe: forward as tap
+                                        session.coordinateTransformer.updateDimensions(
+                                            videoW = videoW,
+                                            videoH = videoH,
+                                            containerW = v.width,
+                                            containerH = v.height
+                                        )
+                                        val targetDownPoint = session.coordinateTransformer.toTargetCoordinates(downX, downY)
+                                        val targetUpPoint = session.coordinateTransformer.toTargetCoordinates(event.x, event.y)
+                                        if (targetDownPoint != null && targetUpPoint != null) {
+                                            ctrl.sendTouchEvent(
+                                                action = ControlMessage.ACTION_DOWN,
+                                                pointerId = event.getPointerId(0).toLong(),
+                                                x = targetDownPoint.x,
+                                                y = targetDownPoint.y,
+                                                screenWidth = videoW,
+                                                screenHeight = videoH,
+                                                pressure = 1.0f
+                                            )
+                                            ctrl.sendTouchEvent(
+                                                action = ControlMessage.ACTION_UP,
+                                                pointerId = event.getPointerId(0).toLong(),
+                                                x = targetUpPoint.x,
+                                                y = targetUpPoint.y,
+                                                screenWidth = videoW,
+                                                screenHeight = videoH,
+                                                pressure = event.pressure
+                                            )
+                                        }
+                                        isTopEdge = false
+                                        isBottomEdge = false
+                                    } else {
+                                        // Normal touch release in content area
+                                        session.coordinateTransformer.updateDimensions(
+                                            videoW = videoW,
+                                            videoH = videoH,
+                                            containerW = v.width,
+                                            containerH = v.height
+                                        )
+                                        val targetPoint = session.coordinateTransformer.toTargetCoordinates(event.x, event.y)
+                                        if (targetPoint != null) {
+                                            ctrl.sendTouchEvent(
+                                                action = ControlMessage.ACTION_UP,
+                                                pointerId = event.getPointerId(0).toLong(),
+                                                x = targetPoint.x,
+                                                y = targetPoint.y,
+                                                screenWidth = videoW,
+                                                screenHeight = videoH,
+                                                pressure = event.pressure
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -189,6 +349,7 @@ fun MirrorScreen(
                 }
             }
         )
+        }
 
         // 2. Top Status HUD Overlay
         AnimatedVisibility(
@@ -209,7 +370,7 @@ fun MirrorScreen(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Disconnect button on the left (bam side)
+                    // Disconnect button on the left
                     Surface(
                         onClick = {
                             session.disconnect()
@@ -231,7 +392,7 @@ fun MirrorScreen(
 
                     Spacer(modifier = Modifier.width(12.dp))
 
-                    // Subtle vertical separator
+                    // Vertical separator
                     Box(
                         modifier = Modifier
                             .width(1.dp)
@@ -261,82 +422,11 @@ fun MirrorScreen(
                             )
                         }
                     }
-
-                    Spacer(modifier = Modifier.width(18.dp))
-
-                    // Orientation rotate toggle
-                    Surface(
-                        onClick = {
-                            isLandscape = !isLandscape
-                            activity?.requestedOrientation = if (isLandscape) {
-                                ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                            } else {
-                                ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                            }
-                        },
-                        shape = CircleShape,
-                        color = Color(0x22FFFFFF),
-                        modifier = Modifier.size(34.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Default.ScreenRotation,
-                                contentDescription = "Rotate",
-                                tint = Color.White,
-                                modifier = Modifier.size(17.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(10.dp))
-
-                    // Eye button (Hide HUD) on the right side
-                    Surface(
-                        onClick = { showControls = false },
-                        shape = CircleShape,
-                        color = Color(0x22FFFFFF),
-                        modifier = Modifier.size(34.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Default.VisibilityOff,
-                                contentDescription = "Hide HUD",
-                                tint = Color(0xFF94A3B8),
-                                modifier = Modifier.size(17.dp)
-                            )
-                        }
-                    }
                 }
             }
         }
 
-        // Show HUD trigger if hidden
-        if (!showControls) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .statusBarsPadding()
-                    .padding(12.dp)
-            ) {
-                Surface(
-                    onClick = { showControls = true },
-                    shape = CircleShape,
-                    color = Color(0x99000000),
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.Visibility,
-                            contentDescription = "Show HUD",
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-            }
-        }
-
-        // 3. Floating Bottom Navigation Dock (Remote Android Buttons)
+        // 3. Floating Bottom Navigation Dock (Essential 5 Buttons: Back, Home, Recents, Power, Display Off/On)
         AnimatedVisibility(
             visible = showControls,
             enter = fadeIn(),
@@ -364,7 +454,7 @@ fun MirrorScreen(
 
                     DockButton(
                         icon = Icons.Default.FiberManualRecord,
-                        contentDescription = "Remote Home",
+                        contentDescription = "Remote Home (Minimize)",
                         onClick = { session.controller?.sendHome() }
                     )
 
@@ -390,16 +480,39 @@ fun MirrorScreen(
                             session.controller?.setScreenPowerMode(!isPhysicalScreenOff)
                         }
                     )
-
-                    DockButton(
-                        icon = Icons.Default.Refresh,
-                        contentDescription = "Refresh & Reconnect Stream",
-                        tint = Color(0xFF34D399),
-                        onClick = {
-                            session.reconnect()
-                        }
-                    )
                 }
+            }
+        }
+
+        // 4. Draggable Floating Eye Button (Can be dragged freely anywhere across the screen)
+        Surface(
+            onClick = { showControls = !showControls },
+            shape = CircleShape,
+            color = Color(0xCC0F172A),
+            border = BorderStroke(1.dp, Color(0x3338BDF8)),
+            shadowElevation = 8.dp,
+            modifier = Modifier
+                .offset {
+                    val x = if (fabOffsetX >= 0f) fabOffsetX.roundToInt() else 0
+                    val y = if (fabOffsetY >= 0f) fabOffsetY.roundToInt() else 0
+                    IntOffset(x, y)
+                }
+                .size(46.dp)
+                .pointerInput(Unit) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        fabOffsetX = (fabOffsetX + dragAmount.x).coerceIn(0f, maxFabX)
+                        fabOffsetY = (fabOffsetY + dragAmount.y).coerceIn(0f, maxFabY)
+                    }
+                }
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = if (showControls) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                    contentDescription = if (showControls) "Hide Controls" else "Show Controls",
+                    tint = if (showControls) Color(0xFF94A3B8) else Color(0xFF38BDF8),
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
     }

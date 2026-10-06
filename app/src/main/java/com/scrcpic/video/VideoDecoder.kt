@@ -20,12 +20,14 @@ class VideoDecoder(
     private var surface: Surface,
     private val coroutineScope: CoroutineScope,
     private val onConfigured: (deviceName: String, width: Int, height: Int) -> Unit,
+    private val onDimensionChanged: (width: Int, height: Int) -> Unit = { _, _ -> },
     private val onFpsUpdate: (fps: Int) -> Unit,
     private val onError: (Throwable) -> Unit
 ) {
     companion object {
         private const val TAG = "VideoDecoder"
-        private const val FLAG_CONFIG: Long = 1L shl 63      // 0x8000000000000000L
+        private const val FLAG_SESSION: Long = 1L shl 63     // 0x8000000000000000L
+        private const val FLAG_CONFIG: Long = 1L shl 62      // 0x4000000000000000L
         private const val FLAG_KEY_FRAME: Long = 1L shl 61   // 0x2000000000000000L
         private const val PTS_MASK: Long = 0x1FFFFFFFFFFFFFFFL // bits 0..60
     }
@@ -49,6 +51,9 @@ class VideoDecoder(
 
     @Volatile
     private var cachedConfigData: ByteArray? = null
+
+    private var maxDim: Int = 2560
+    private var hasReceivedInitialConfig = false
 
     fun start() {
         if (isRunning) return
@@ -107,13 +112,14 @@ class VideoDecoder(
 
         onConfigured(deviceName, width, height)
 
-        // 5. Initialize MediaCodec
+        // 5. Initialize MediaCodec with adaptive buffer headroom for orientation changes
         val mimeType = if (codecId == 0x68323635) { // 'h265'
             MediaFormat.MIMETYPE_VIDEO_HEVC
         } else {
             MediaFormat.MIMETYPE_VIDEO_AVC // 'h264'
         }
 
+        maxDim = maxOf(width, height, 2560)
         val format = MediaFormat.createVideoFormat(mimeType, width, height).apply {
             try {
                 setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
@@ -121,10 +127,16 @@ class VideoDecoder(
             try {
                 setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 1024 * 1024) // 1MB buffer
             } catch (_: Exception) {}
+            try {
+                // Ensure hardware decoders allocate buffers large enough for portrait and landscape
+                setInteger(MediaFormat.KEY_MAX_WIDTH, maxDim)
+                setInteger(MediaFormat.KEY_MAX_HEIGHT, maxDim)
+            } catch (_: Exception) {}
         }
 
         cachedMimeType = mimeType
         cachedFormat = format
+        hasReceivedInitialConfig = false
 
         synchronized(codecLock) {
             val codec = MediaCodec.createDecoderByType(mimeType)
@@ -172,15 +184,38 @@ class VideoDecoder(
                             lastFpsTime = now
                         }
                     } else if (outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                        Log.d(TAG, "Decoder output format changed: ${codec.outputFormat}")
+                        val newFormat = codec.outputFormat
+                        Log.d(TAG, "Decoder output format changed: $newFormat")
+                        try {
+                            var newWidth = if (newFormat.containsKey(MediaFormat.KEY_WIDTH)) newFormat.getInteger(MediaFormat.KEY_WIDTH) else 0
+                            var newHeight = if (newFormat.containsKey(MediaFormat.KEY_HEIGHT)) newFormat.getInteger(MediaFormat.KEY_HEIGHT) else 0
+
+                            // Handle crop rectangle (actual visible resolution)
+                            if (newFormat.containsKey("crop-right") && newFormat.containsKey("crop-left")) {
+                                val cropWidth = newFormat.getInteger("crop-right") - newFormat.getInteger("crop-left") + 1
+                                if (cropWidth > 0) newWidth = cropWidth
+                            }
+                            if (newFormat.containsKey("crop-bottom") && newFormat.containsKey("crop-top")) {
+                                val cropHeight = newFormat.getInteger("crop-bottom") - newFormat.getInteger("crop-top") + 1
+                                if (cropHeight > 0) newHeight = cropHeight
+                            }
+
+                            if (newWidth > 0 && newHeight > 0) {
+                                Log.i(TAG, "Video resolution updated to: ${newWidth}x${newHeight}")
+                                onDimensionChanged(newWidth, newHeight)
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Error handling output format change: ${e.message}")
+                        }
                     }
                 } catch (e: IllegalStateException) {
                     if (!isRunning || !isActive) break
-                    if (e.message?.contains("Released", ignoreCase = true) == true) break
                     Log.w(TAG, "Transient decode state warning: ${e.message}")
+                    delay(15)
                 } catch (e: Exception) {
                     if (!isRunning || !isActive) break
                     Log.w(TAG, "Transient decode warning: ${e.message}")
+                    delay(15)
                 }
             }
         }
@@ -190,6 +225,20 @@ class VideoDecoder(
         while (isRunning && isActive) {
             try {
                 val ptsAndFlags = dis.readLong()
+                
+                // Handle dynamic SessionMeta packet injected during server reset (e.g., rotation)
+                if ((ptsAndFlags and FLAG_SESSION) != 0L) {
+                    val flags = (ptsAndFlags ushr 32).toInt()
+                    val newWidth = ptsAndFlags.toInt()
+                    val newHeight = dis.readInt() // 3rd part of SessionMeta is height
+                    Log.i(TAG, "Dynamic session reset detected! New size: ${newWidth}x${newHeight}")
+                    
+                    // We can notify the UI of the new dimension.
+                    // The server will immediately follow up with a CONFIG packet and an IDR frame.
+                    onDimensionChanged(newWidth, newHeight)
+                    continue
+                }
+
                 val packetSize = dis.readInt()
 
                 if (packetSize <= 0 || packetSize > 5 * 1024 * 1024) {
@@ -206,12 +255,23 @@ class VideoDecoder(
                 val isKeyFrame = (ptsAndFlags and FLAG_KEY_FRAME) != 0L
                 val pts = if (isConfig) 0L else (ptsAndFlags and PTS_MASK)
 
-                // Cache the SPS/PPS config packet so we can re-create MediaCodec on the fly anytime
                 if (isConfig) {
                     val configBytes = ByteArray(packetSize)
                     System.arraycopy(packetData, 0, configBytes, 0, packetSize)
+
+                    val isNewConfig = hasReceivedInitialConfig && cachedConfigData != null && !cachedConfigData!!.contentEquals(configBytes)
                     cachedConfigData = configBytes
-                    Log.d(TAG, "Cached SPS/PPS video config header (${configBytes.size} bytes)")
+
+                    if (isNewConfig) {
+                        Log.i(TAG, "Dynamic SPS/PPS change detected (${configBytes.size} bytes) - feeding in-band to decoder")
+                    } else if (hasReceivedInitialConfig) {
+                        // Repeated identical SPS/PPS packet - skip queueing to avoid redundant overhead
+                        continue
+                    }
+
+                    // Initial or updated SPS/PPS: mark received and queue into decoder below
+                    hasReceivedInitialConfig = true
+                    Log.d(TAG, "SPS/PPS config queued into decoder (${configBytes.size} bytes)")
                 }
 
                 var flags = 0
@@ -258,8 +318,7 @@ class VideoDecoder(
                 }
             } catch (e: IllegalStateException) {
                 if (!isRunning || !isActive) break
-                if (e.message?.contains("Released", ignoreCase = true) == true) break
-                throw e
+                delay(15)
             } catch (e: java.io.IOException) {
                 if (!isRunning || !isActive) break
                 throw e
@@ -269,17 +328,15 @@ class VideoDecoder(
 
     fun notifySurfaceDestroyed() {
         hasValidSurface = false
-        Log.d(TAG, "Surface destroyed - background frame draining active")
+        Log.d(TAG, "Surface destroyed - releasing codec to prevent background corruption")
+        stopInternal()
     }
 
     fun setOutputSurface(newSurface: Surface) {
         surface = newSurface
+        hasValidSurface = true
         synchronized(codecLock) {
-            // Recreating the codec on the new surface is the robust, OEM-agnostic solution.
-            // On Redmi/MIUI and many Qualcomm/MediaTek devices, MediaCodec.setOutputSurface
-            // fails silently (returns without error but leaves the display black).
-            // Recreating with cached SPS/PPS + requesting an immediate IDR keyframe restores
-            // video rendering immediately.
+            // Always recreate codec instead of using setOutputSurface to guarantee a clean state
             recreateCodecOnSurface(newSurface)
         }
     }

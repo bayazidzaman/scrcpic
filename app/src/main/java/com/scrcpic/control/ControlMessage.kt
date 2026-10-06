@@ -154,4 +154,26 @@ object ControlMessage {
     fun createResetVideo(): ByteArray {
         return byteArrayOf(TYPE_RESET_VIDEO.toByte())
     }
+
+    /**
+     * Creates an expand notification panel packet (Type 5).
+     */
+    fun createExpandNotificationPanel(): ByteArray {
+        return byteArrayOf(TYPE_EXPAND_NOTIFICATION_PANEL.toByte())
+    }
+
+    /**
+     * Creates an expand settings panel packet (Type 6).
+     */
+    fun createExpandSettingsPanel(): ByteArray {
+        return byteArrayOf(TYPE_EXPAND_SETTINGS_PANEL.toByte())
+    }
+
+    /**
+     * Creates a collapse panels packet (Type 7).
+     */
+    fun createCollapsePanels(): ByteArray {
+        return byteArrayOf(TYPE_COLLAPSE_PANELS.toByte())
+    }
 }
+

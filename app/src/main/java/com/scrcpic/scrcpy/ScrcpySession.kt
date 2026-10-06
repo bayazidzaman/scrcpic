@@ -280,6 +280,20 @@ class ScrcpySession(
                 )
                 _state.value = SessionState.Connected(deviceName, width, height)
             },
+            onDimensionChanged = { width, height ->
+                scrcpyVideoWidth = width
+                scrcpyVideoHeight = height
+                coordinateTransformer.updateDimensions(
+                    videoW = width,
+                    videoH = height,
+                    containerW = coordinateTransformer.currentContainerWidth,
+                    containerH = coordinateTransformer.currentContainerHeight
+                )
+                val currentState = _state.value
+                if (currentState is SessionState.Connected) {
+                    _state.value = currentState.copy(width = width, height = height)
+                }
+            },
             onFpsUpdate = { currentFps ->
                 _fps.value = currentFps
             },
@@ -287,7 +301,18 @@ class ScrcpySession(
                 if (_state.value is SessionState.Connected || _state.value is SessionState.Connecting) {
                     val msg = throwable.message ?: ""
                     if (!msg.contains("Released", ignoreCase = true) && !msg.contains("closed", ignoreCase = true)) {
+                        Log.w(TAG, "Video decoding error: $msg")
                         _state.value = SessionState.Error("Video decoding error: $msg")
+                        val surf = currentSurface
+                        if (surf != null && surf.isValid) {
+                            coroutineScope.launch {
+                                delay(1200)
+                                if (_state.value is SessionState.Error) {
+                                    Log.d(TAG, "Attempting automatic background reconnection...")
+                                    reconnect(surf)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -296,20 +321,32 @@ class ScrcpySession(
         decoder.start()
     }
 
+    fun isSessionAlive(): Boolean {
+        return _state.value is SessionState.Connected && videoStream != null && videoDecoder != null
+    }
+
     fun setOutputSurface(surface: Surface) {
+        currentSurface = surface
         videoDecoder?.setOutputSurface(surface)
     }
 
     fun onSurfaceRestored(surface: Surface) {
+        currentSurface = surface
+        if (!isSessionAlive()) {
+            Log.d(TAG, "onSurfaceRestored: Session was dropped while in background, auto-reconnecting...")
+            reconnect(surface)
+            return
+        }
+        Log.d(TAG, "onSurfaceRestored: Re-binding decoder to new surface instantly...")
         setOutputSurface(surface)
         coroutineScope.launch(Dispatchers.IO) {
             try {
+                // Request a brand new IDR keyframe and session config to instantly recover video
                 controller?.resetVideo()
+                delay(100)
                 controller?.sendWakeUp()
-                delay(120)
-                controller?.resetVideo()
             } catch (e: Exception) {
-                Log.w(TAG, "Error requesting video stream refresh on restore: ${e.message}")
+                Log.w(TAG, "Error requesting wake up on restore: ${e.message}")
             }
         }
     }
