@@ -14,3 +14,4 @@ build/
 *.dex
 .kotlin
 scrcpy-win64-v4.1/
+.vscode/

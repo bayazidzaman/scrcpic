@@ -128,6 +128,51 @@ class UsbAdbManager(private val context: Context) {
         activeBridge = null
     }
 
+    suspend fun enableWirelessMode(targetPort: Int = 5555): Result<String> = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val discovered = findConnectedAdbDevice()
+            ?: return@withContext Result.failure(IllegalStateException("No USB device found. Connect device via USB/OTG cable first."))
+        if (!usbManager.hasPermission(discovered.device)) {
+            requestPermission(discovered.device)
+            return@withContext Result.failure(IllegalStateException("USB permission required. Tap Allow on the USB prompt and try again."))
+        }
+
+        val tempScope = CoroutineScope(Dispatchers.IO)
+        var bridge: UsbAdbBridge? = null
+        try {
+            bridge = startBridge(discovered, tempScope)
+            val keyPair = com.scrcpic.adb.AdbManager(context).getOrCreateKeyPair()
+            val dadb = dadb.Dadb.create("127.0.0.1", bridge.port, keyPair)
+
+            // 1. Query target device's Wi-Fi IP address
+            var ip = ""
+            try {
+                val ipResp = dadb.shell("ip -f inet addr show wlan0")
+                val match = Regex("""inet\s+([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)""").find(ipResp.output)
+                if (match != null) {
+                    ip = match.groupValues[1]
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed to query wlan0 IP: ${t.message}")
+            }
+
+            // 2. Open tcpip service to restart adbd in TCP mode on port 5555
+            try {
+                dadb.open("tcpip:$targetPort").close()
+            } catch (t: Throwable) {
+                dadb.shell("setprop service.adb.tcp.port $targetPort; stop adbd; start adbd")
+            }
+
+            dadb.close()
+            Result.success(ip)
+        } catch (e: Throwable) {
+            Log.e(TAG, "Failed to enable wireless mode over USB", e)
+            Result.failure(e)
+        } finally {
+            bridge?.close()
+            stopBridge()
+        }
+    }
+
     class UsbAdbBridge(
         private val connection: UsbDeviceConnection,
         private val usbInterface: UsbInterface,

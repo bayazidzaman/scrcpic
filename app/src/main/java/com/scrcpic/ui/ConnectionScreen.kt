@@ -27,11 +27,13 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.SettingsEthernet
 import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -45,11 +47,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,6 +62,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -64,8 +70,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.scrcpic.R
 import com.scrcpic.adb.AdbManager
+import com.scrcpic.adb.AdbPairingManager
+import com.scrcpic.adb.PairingState
 import com.scrcpic.scrcpy.SessionState
 import com.scrcpic.usb.UsbAdbManager
+import kotlinx.coroutines.launch
 
 enum class ConnectionMode {
     WIFI,
@@ -89,11 +98,25 @@ fun ConnectionScreen(
     onConnect: (ip: String, port: Int, preset: StreamQualityPreset, turnScreenOff: Boolean, isUsb: Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val pairingManager = remember { AdbPairingManager(context) }
+    val pairingState by pairingManager.state.collectAsState()
+
     var selectedMode by remember { mutableStateOf(ConnectionMode.WIFI) }
     var ipAddress by remember { mutableStateOf(AdbManager.DEFAULT_IP) }
     var portText by remember { mutableStateOf(AdbManager.DEFAULT_PORT.toString()) }
     var turnScreenOffOnConnect by remember { mutableStateOf(true) }
     var discoveredUsbDevice by remember { mutableStateOf<UsbAdbManager.DiscoveredAdbDevice?>(null) }
+
+    var isSwitchingToWireless by remember { mutableStateOf(false) }
+    var switchStatusMessage by remember { mutableStateOf<String?>(null) }
+    var switchStatusIsError by remember { mutableStateOf(false) }
+
+    var showPairingDialog by remember { mutableStateOf(false) }
+    var pairingIp by remember { mutableStateOf(ipAddress) }
+    var pairingPortText by remember { mutableStateOf("") }
+    var pairingCodeText by remember { mutableStateOf("") }
 
     LaunchedEffect(selectedMode) {
         if (selectedMode == ConnectionMode.USB) {
@@ -326,6 +349,51 @@ fun ConnectionScreen(
                             )
                         )
                     }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Wireless Pairing Assistant Shortcut
+                    Surface(
+                        onClick = {
+                            pairingIp = ipAddress
+                            pairingManager.resetState()
+                            showPairingDialog = true
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0x2038BDF8),
+                        border = BorderStroke(1.dp, Color(0x4038BDF8)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("⚡", fontSize = 14.sp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = "Wireless Pairing Assistant (Android 11+)",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF38BDF8)
+                                    )
+                                    Text(
+                                        text = "পিসি ছাড়া 6-digit কোড দিয়ে ওয়্যারলেস কানেক্ট করুন",
+                                        fontSize = 10.5.sp,
+                                        color = Color(0xFF94A3B8)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = "Pair ❯",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF38BDF8)
+                            )
+                        }
+                    }
                 } else {
                     // USB Cable Device Card
                     Surface(
@@ -381,6 +449,54 @@ fun ConnectionScreen(
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text("Ready to mirror via USB cable (Direct OTG)", fontSize = 11.5.sp, color = Color(0xFF34D399))
                                     }
+
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    // Switch to Wireless 1-Touch Button
+                                    Button(
+                                        onClick = {
+                                            isSwitchingToWireless = true
+                                            switchStatusMessage = null
+                                            coroutineScope.launch {
+                                                val result = usbAdbManager.enableWirelessMode(5555)
+                                                isSwitchingToWireless = false
+                                                result.onSuccess { detectedIp ->
+                                                    if (detectedIp.isNotBlank()) {
+                                                        ipAddress = detectedIp
+                                                    }
+                                                    portText = "5555"
+                                                    switchStatusIsError = false
+                                                    switchStatusMessage = "Wireless 5555 সক্রিয় হয়েছে! এখন ক্যাবল খুলে Wi-Fi সিলেক্ট করে কানেক্ট দিন।"
+                                                    selectedMode = ConnectionMode.WIFI
+                                                }.onFailure { err ->
+                                                    switchStatusIsError = true
+                                                    switchStatusMessage = "ত্রুটি: ${err.message ?: "Wireless mode activation failed"}"
+                                                }
+                                            }
+                                        },
+                                        enabled = !isSwitchingToWireless && !isConnecting,
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color(0xFF0D9488),
+                                            disabledContainerColor = Color(0x330D9488)
+                                        ),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(36.dp),
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp)
+                                    ) {
+                                        if (isSwitchingToWireless) {
+                                            CircularProgressIndicator(
+                                                color = Color.White,
+                                                strokeWidth = 2.dp,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Activating Port 5555...", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                        } else {
+                                            Text("⚡ Switch to Wireless (ক্যাবল খুলে চালান)", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
                                 } else {
                                     Button(
                                         onClick = { usbAdbManager.requestPermission(discoveredUsbDevice!!.device) },
@@ -401,6 +517,38 @@ fun ConnectionScreen(
                                     color = Color(0xFF64748B)
                                 )
                             }
+                        }
+                    }
+                }
+
+                if (switchStatusMessage != null) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 10.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (switchStatusIsError) Color(0x33EF4444) else Color(0x2610B981)
+                        ),
+                        border = BorderStroke(1.dp, if (switchStatusIsError) Color(0x66EF4444) else Color(0x4D10B981))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (switchStatusIsError) Icons.Default.ErrorOutline else Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = if (switchStatusIsError) Color(0xFFF87171) else Color(0xFF34D399),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = switchStatusMessage!!,
+                                color = if (switchStatusIsError) Color(0xFFFCA5A5) else Color(0xFFA7F3D0),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Medium
+                            )
                         }
                     }
                 }
@@ -665,6 +813,209 @@ fun ConnectionScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
         }
+    }
+
+    if (showPairingDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                if (pairingState !is PairingState.Pairing) {
+                    showPairingDialog = false
+                }
+            },
+            containerColor = Color(0xFF0F172A),
+            titleContentColor = Color.White,
+            textContentColor = Color(0xFFE2E8F0),
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Wifi,
+                        contentDescription = null,
+                        tint = Color(0xFF38BDF8),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Wireless Pairing (Android 11+)",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Text(
+                        text = "পিসির সাহায্য ছাড়া ফোনের ওয়্যারলেস ডিবাগিং চালু করতে:",
+                        fontSize = 12.sp,
+                        color = Color(0xFF94A3B8)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "১. অপর ফোনে Developer options -> Wireless debugging চালু করুন।\n২. 'Pair device with pairing code' এ ট্যাপ করুন।\n৩. সেখানে দেখানো Port ও 6-digit Code নিচে বসান:",
+                        fontSize = 11.sp,
+                        color = Color(0xFFCBD5E1),
+                        lineHeight = 16.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = pairingIp,
+                        onValueChange = { pairingIp = it },
+                        label = { Text("Device IP Address") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = Color(0xFF38BDF8),
+                            unfocusedBorderColor = Color(0xFF334155),
+                            focusedContainerColor = Color(0x301E293B),
+                            unfocusedContainerColor = Color(0x301E293B)
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = pairingPortText,
+                            onValueChange = { pairingPortText = it },
+                            label = { Text("Pairing Port") },
+                            placeholder = { Text("e.g. 38491", color = Color(0xFF64748B)) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                focusedBorderColor = Color(0xFF818CF8),
+                                unfocusedBorderColor = Color(0xFF334155),
+                                focusedContainerColor = Color(0x301E293B),
+                                unfocusedContainerColor = Color(0x301E293B)
+                            )
+                        )
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        OutlinedTextField(
+                            value = pairingCodeText,
+                            onValueChange = { pairingCodeText = it },
+                            label = { Text("6-Digit Code") },
+                            placeholder = { Text("123456", color = Color(0xFF64748B)) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                focusedBorderColor = Color(0xFF818CF8),
+                                unfocusedBorderColor = Color(0xFF334155),
+                                focusedContainerColor = Color(0x301E293B),
+                                unfocusedContainerColor = Color(0x301E293B)
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    when (val st = pairingState) {
+                        is PairingState.Pairing -> {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0x2238BDF8), RoundedCornerShape(8.dp))
+                                    .padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(
+                                    color = Color(0xFF38BDF8),
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(st.message, fontSize = 11.5.sp, color = Color(0xFFE0F2FE))
+                            }
+                        }
+                        is PairingState.Success -> {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0x2210B981), RoundedCornerShape(8.dp))
+                                    .padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(st.message, fontSize = 11.5.sp, color = Color(0xFFA7F3D0))
+                            }
+                        }
+                        is PairingState.Error -> {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0x22EF4444), RoundedCornerShape(8.dp))
+                                    .padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(st.error, fontSize = 11.5.sp, color = Color(0xFFFCA5A5))
+                            }
+                        }
+                        else -> {}
+                    }
+                }
+            },
+            confirmButton = {
+                if (pairingState is PairingState.Success) {
+                    Button(
+                        onClick = {
+                            ipAddress = pairingIp.trim()
+                            portText = "5555"
+                            showPairingDialog = false
+                            pairingManager.resetState()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                    ) {
+                        Text("Connect Now", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                } else {
+                    Button(
+                        onClick = {
+                            val pPort = pairingPortText.toIntOrNull() ?: 0
+                            coroutineScope.launch {
+                                pairingManager.pairAndActivate(
+                                    targetIp = pairingIp.trim(),
+                                    pairingPort = pPort,
+                                    pairingCode = pairingCodeText.trim(),
+                                    connectPort = pPort
+                                )
+                            }
+                        },
+                        enabled = pairingState !is PairingState.Pairing && pairingIp.isNotBlank() && pairingPortText.isNotBlank() && pairingCodeText.isNotBlank(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4F46E5))
+                    ) {
+                        Text("Pair Device", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showPairingDialog = false
+                        pairingManager.resetState()
+                    },
+                    enabled = pairingState !is PairingState.Pairing
+                ) {
+                    Text("Close", color = Color(0xFF94A3B8))
+                }
+            }
+        )
     }
 }
 
