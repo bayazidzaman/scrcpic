@@ -38,6 +38,8 @@ class ScrcpySession(
     val usbAdbManager = com.scrcpic.usb.UsbAdbManager(context)
     val coordinateTransformer = CoordinateTransformer()
 
+    fun getDadbInstance() = adbManager.getDadb()
+
     private val _state = MutableStateFlow<SessionState>(SessionState.Idle)
     val state: StateFlow<SessionState> = _state.asStateFlow()
 
@@ -68,6 +70,9 @@ class ScrcpySession(
 
     private var sessionWakeLock: android.os.PowerManager.WakeLock? = null
     private var sessionWifiLock: android.net.wifi.WifiManager.WifiLock? = null
+
+    private var clipboardListener: android.content.ClipboardManager.OnPrimaryClipChangedListener? = null
+    private var lastSyncedClipboard: String = ""
 
     private fun acquireLocks() {
         try {
@@ -261,8 +266,39 @@ class ScrcpySession(
         }
         controlStream = cStream
 
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
         val ctrl = ScrcpyController(cStream, coroutineScope)
+        
+        ctrl.onClipboardReceived = { text ->
+            try {
+                if (text != lastSyncedClipboard) {
+                    lastSyncedClipboard = text
+                    val clip = android.content.ClipData.newPlainText("Scrcpic", text)
+                    clipboard.setPrimaryClip(clip)
+                    Log.d(TAG, "Clipboard synced from remote: $text")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to set local clipboard: ${e.message}")
+            }
+        }
         controller = ctrl
+        
+        clipboardListener = android.content.ClipboardManager.OnPrimaryClipChangedListener {
+            try {
+                val clipData = clipboard.primaryClip
+                if (clipData != null && clipData.itemCount > 0) {
+                    val text = clipData.getItemAt(0).text?.toString() ?: ""
+                    if (text.isNotEmpty() && text != lastSyncedClipboard) {
+                        lastSyncedClipboard = text
+                        controller?.setClipboard(text, paste = false)
+                        Log.d(TAG, "Local clipboard auto-synced to remote")
+                    }
+                }
+            } catch (e: Exception) {
+                // Ignore
+            }
+        }
+        clipboard.addPrimaryClipChangedListener(clipboardListener)
 
         _state.value = SessionState.Connecting("Initializing low-latency video decoder...")
         val decoder = VideoDecoder(
@@ -383,8 +419,35 @@ class ScrcpySession(
         controlStream = null
 
         controller = null
+        
+        clipboardListener?.let {
+            try {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.removePrimaryClipChangedListener(it)
+            } catch (e: Exception) {}
+            clipboardListener = null
+        }
+        
         adbManager.disconnect()
         usbAdbManager.stopBridge()
         releaseLocks()
+    }
+
+    fun pushLocalClipboardToRemote() {
+        val ctrl = controller ?: return
+        try {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val clipData = clipboard.primaryClip
+            if (clipData != null && clipData.itemCount > 0) {
+                val text = clipData.getItemAt(0).text?.toString()
+                if (!text.isNullOrEmpty() && text != lastSyncedClipboard) {
+                    lastSyncedClipboard = text
+                    ctrl.setClipboard(text, paste = false)
+                    Log.d(TAG, "Local clipboard sent to remote on resume")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to read local clipboard: ${e.message}")
+        }
     }
 }

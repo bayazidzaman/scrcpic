@@ -13,13 +13,23 @@
   <a href="https://github.com/bayazidzaman/scrcpic/releases/latest">
     <img src="https://img.shields.io/github/v/release/bayazidzaman/scrcpic?style=for-the-badge&color=22C55E&label=Latest%20Release" alt="Latest Release"/>
   </a>
-  <a href="https://github.com/bayazidzaman/scrcpic/releases/download/v1.1.0/Scrcpic-v1.1.0-release.apk">
-    <img src="https://img.shields.io/badge/Download-Latest%20APK%20(v1.1.0)-0EA5E9?style=for-the-badge&logo=android&logoColor=white" alt="Download Latest APK"/>
+  <a href="https://github.com/bayazidzaman/scrcpic/releases/download/v1.2.0/Scrcpic-v1.2.0-release.apk">
+    <img src="https://img.shields.io/badge/Download-Latest%20APK%20(v1.2.0)-0EA5E9?style=for-the-badge&logo=android&logoColor=white" alt="Download Latest APK"/>
   </a>
   <img src="https://img.shields.io/badge/Platform-Android%208.0+-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Platform: Android"/>
   <img src="https://img.shields.io/badge/Protocol-Scrcpy%20v4.1-FF6F00?style=for-the-badge" alt="Scrcpy v4.1 Protocol"/>
   <img src="https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white" alt="Jetpack Compose"/>
   <img src="https://img.shields.io/badge/License-Apache--2.0-blue?style=for-the-badge" alt="Apache 2.0 License"/>
+</p>
+
+---
+
+<p align="center">
+  <img src="public/screenshot_1.jpg" width="250" alt="Scrcpic Connection Screen" />
+  &nbsp;&nbsp;&nbsp;
+  <img src="public/screenshot_2.jpg" width="250" alt="Scrcpic Mirroring Screen" />
+  &nbsp;&nbsp;&nbsp;
+  <img src="public/screenshot_3.jpg" width="250" alt="Scrcpic Mirroring Fullscreen" />
 </p>
 
 ---
@@ -77,11 +87,19 @@ With Scrcpic, an Android phone acts as the **master controller**, connecting to 
 - 🎮 **Full Multi-Touch & Navigation Input:**
   - Forward single and multi-touch gestures (tap, swipe, pinch-to-zoom, scroll).
   - Dedicated virtual navigation controls: **Back**, **Home**, **App Switcher (Recents)**, **Power / Screen Wake**, and **Volume**.
+- 📂 **Built-in File Manager (New in v1.2.0):**
+  - Integrated ADB-based file manager to browse the remote device's storage.
+  - Push files to the remote device or pull files directly to your local `Downloads/Scrcpic` folder.
+- 📋 **Seamless Clipboard Sync (New in v1.2.0):**
+  - Bi-directional clipboard sharing. Text copied on the remote device is automatically synced to the local device, and vice versa.
+- 🖐️ **Smart Navigation Gestures (New in v1.2.0):**
+  - Swipe up from the bottom edge of the mirrored screen to instantly minimize the remote phone (Home).
+  - Swipe up and hold to open the remote App Switcher (Recents).
 - 🔄 **Rock-Solid Background Auto-Recovery (New in v1.1.0):**
   - Seamlessly handles app minimizing, multitasking, and screen lock events.
-  - Automatically reconstructs the hardware decoder surface and triggers `ControlMessage.TYPE_RESET_VIDEO` to request an immediate IDR keyframe from the scrcpy server. No more frozen streams or black screens!
-- 📐 **True Aspect Ratio & Orientation Lock (New in v1.1.0):**
-  - Accurately renders remote displays with `Modifier.aspectRatio` without stretching, squashing, or letterboxing distortion.
+  - Automatically reconstructs the hardware decoder surface and requests a new keyframe instantly.
+- 📐 **True Aspect Ratio & Orientation Lock:**
+  - Accurately renders remote displays without stretching, squashing, or letterboxing distortion.
   - Locked to portrait orientation by default to eliminate disorienting camera app rotations.
 - 🧠 **Smart IP Address History Dropdown (New in v1.1.0):**
   - Automatically remembers previously connected device IP addresses and lets you select them instantly from an intelligent dropdown menu.

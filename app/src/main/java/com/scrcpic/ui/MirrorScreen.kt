@@ -38,6 +38,10 @@ import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -64,7 +68,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.scrcpic.control.ControlMessage
 import com.scrcpic.scrcpy.ScrcpySession
 import com.scrcpic.scrcpy.SessionState
+import com.scrcpic.adb.RemoteFileManager
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 @SuppressLint("ClickableViewAccessibility")
@@ -87,11 +93,15 @@ fun MirrorScreen(
 
     var showControls by remember { mutableStateOf(true) }
     var isPhysicalScreenOff by remember { mutableStateOf(initialScreenOff) }
+    var showFileManager by remember { mutableStateOf(false) }
 
     LaunchedEffect(sessionState) {
-        if (sessionState is SessionState.Connected && isPhysicalScreenOff) {
+        if (sessionState is SessionState.Connected) {
             delay(500)
-            session.controller?.setScreenPowerMode(false)
+            if (isPhysicalScreenOff) {
+                session.controller?.setScreenPowerMode(false)
+            }
+            session.pushLocalClipboardToRemote()
         }
     }
 
@@ -101,6 +111,23 @@ fun MirrorScreen(
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             session.controller?.setScreenPowerMode(true)
             session.disconnect()
+        }
+    }
+
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                coroutineScope.launch {
+                    delay(500)
+                    session.pushLocalClipboardToRemote()
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
 
@@ -114,13 +141,21 @@ fun MirrorScreen(
         val maxFabX = (constraints.maxWidth - fabSizePx).coerceAtLeast(0f)
         val maxFabY = (constraints.maxHeight - fabSizePx).coerceAtLeast(0f)
 
+        if (showFileManager && session.getDadbInstance() != null) {
+            FileManagerScreen(
+                remoteFileManager = RemoteFileManager(session.getDadbInstance()!!),
+                onClose = { showFileManager = false }
+            )
+            return@BoxWithConstraints
+        }
+
         var fabOffsetX by remember { mutableStateOf(-1f) }
         var fabOffsetY by remember { mutableStateOf(-1f) }
 
         LaunchedEffect(constraints.maxWidth, constraints.maxHeight) {
             if (fabOffsetX < 0f && constraints.maxWidth > 0) {
                 fabOffsetX = maxFabX - with(density) { 16.dp.toPx() }
-                fabOffsetY = with(density) { 68.dp.toPx() }
+                fabOffsetY = maxFabY / 2f // Middle of the screen
             }
         }
 
@@ -201,8 +236,8 @@ fun MirrorScreen(
 
                         if (ctrl != null && videoW > 0 && videoH > 0) {
                             val dispDensity = v.resources.displayMetrics.density
-                            val edgeThreshold = 55f * dispDensity // 55dp top/bottom edge trigger zone
-                            val triggerDistance = 40f * dispDensity // 40dp swipe movement
+                            val edgeThreshold = 60f * dispDensity // 60dp top/bottom edge trigger zone (optimized)
+                            val triggerDistance = 50f * dispDensity // 50dp swipe movement to prevent accidental scrolls
 
                             when (event.actionMasked) {
                                 MotionEvent.ACTION_DOWN -> {
@@ -250,14 +285,8 @@ fun MirrorScreen(
                                             ctrl.expandNotificationPanel()
                                         } else if (isBottomEdge && deltaY < -triggerDistance && absDeltaY > absDeltaX * 1.1f) {
                                             // Bottom Edge Swipe Up: Remote Home (Minimize) or Recents
+                                            // Just mark consumed so we don't send touches. We will execute on ACTION_UP.
                                             gestureConsumed = true
-                                            v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                                            val elapsed = event.eventTime - downTime
-                                            if (elapsed >= 350L) {
-                                                ctrl.sendRecents()
-                                            } else {
-                                                ctrl.sendHome()
-                                            }
                                         } else if (!isTopEdge && !isBottomEdge) {
                                             // Normal touch move in content area
                                             session.coordinateTransformer.updateDimensions(
@@ -284,6 +313,16 @@ fun MirrorScreen(
 
                                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                                     if (gestureConsumed) {
+                                        val deltaY = event.y - downY
+                                        if (isBottomEdge && deltaY < -triggerDistance) {
+                                            v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                                            val elapsed = event.eventTime - downTime
+                                            if (elapsed >= 250L) {
+                                                ctrl.sendRecents()
+                                            } else {
+                                                ctrl.sendHome()
+                                            }
+                                        }
                                         // Gesture executed; reset
                                         gestureConsumed = false
                                         isTopEdge = false
@@ -472,7 +511,14 @@ fun MirrorScreen(
                     )
 
                     DockButton(
-                        icon = if (isPhysicalScreenOff) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                        icon = Icons.Default.Folder,
+                        contentDescription = "File Manager",
+                        tint = Color(0xFF38BDF8),
+                        onClick = { showFileManager = true }
+                    )
+
+                    DockButton(
+                        icon = if (isPhysicalScreenOff) Icons.Default.DarkMode else Icons.Default.LightMode,
                         contentDescription = if (isPhysicalScreenOff) "Turn Display On" else "Turn Display Off",
                         tint = if (isPhysicalScreenOff) Color(0xFF38BDF8) else Color(0xFFFBBF24),
                         onClick = {

@@ -17,9 +17,13 @@ class ScrcpyController(
     }
 
     private val outputStream: OutputStream = controlStream.sink.outputStream()
+    private val inputStream = controlStream.source.inputStream()
     private val sendChannel = kotlinx.coroutines.channels.Channel<ByteArray>(kotlinx.coroutines.channels.Channel.UNLIMITED)
 
+    var onClipboardReceived: ((String) -> Unit)? = null
+
     init {
+        // Send loop
         coroutineScope.launch(Dispatchers.IO) {
             for (data in sendChannel) {
                 try {
@@ -29,6 +33,31 @@ class ScrcpyController(
                     Log.w(TAG, "Error sending control message: ${e.message}")
                     break
                 }
+            }
+        }
+
+        // Receive loop (Device messages)
+        coroutineScope.launch(Dispatchers.IO) {
+            val dis = java.io.DataInputStream(inputStream)
+            try {
+                while (true) {
+                    val type = dis.readByte().toInt()
+                    if (type == 0) { // TYPE_CLIPBOARD
+                        val len = dis.readInt()
+                        val textBytes = ByteArray(len)
+                        dis.readFully(textBytes)
+                        val text = String(textBytes, Charsets.UTF_8)
+                        onClipboardReceived?.invoke(text)
+                    } else if (type == 1) { // TYPE_ACK_CLIPBOARD
+                        dis.readLong()
+                    } else if (type == 2) { // TYPE_UHID_OUTPUT
+                        dis.readShort()
+                        val len = dis.readShort().toInt()
+                        dis.skipBytes(len)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Control read loop ended: ${e.message}")
             }
         }
     }
@@ -110,5 +139,9 @@ class ScrcpyController(
 
     fun collapsePanels() {
         sendRaw(ControlMessage.createCollapsePanels())
+    }
+
+    fun setClipboard(text: String, paste: Boolean = false) {
+        sendRaw(ControlMessage.createSetClipboardEvent(text, paste))
     }
 }

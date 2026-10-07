@@ -175,5 +175,20 @@ object ControlMessage {
     fun createCollapsePanels(): ByteArray {
         return byteArrayOf(TYPE_COLLAPSE_PANELS.toByte())
     }
-}
 
+    /**
+     * Creates a set clipboard event (Type 9).
+     */
+    fun createSetClipboardEvent(text: String, paste: Boolean = false): ByteArray {
+        val textBytes = text.toByteArray(Charsets.UTF_8)
+        val baos = ByteArrayOutputStream(14 + textBytes.size)
+        val dos = DataOutputStream(baos)
+        dos.writeByte(TYPE_SET_CLIPBOARD)
+        dos.writeLong(0L) // sequence number
+        dos.writeByte(if (paste) 1 else 0)
+        dos.writeInt(textBytes.size)
+        dos.write(textBytes)
+        dos.flush()
+        return baos.toByteArray()
+    }
+}

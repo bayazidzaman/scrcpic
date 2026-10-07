@@ -27,6 +27,8 @@ class AdbManager(private val context: Context) {
     val isConnected: Boolean
         get() = dadb != null
 
+    fun getDadb(): Dadb? = dadb
+
     fun getOrCreateKeyPair(): AdbKeyPair {
         val privKey = File(context.filesDir, "adbkey")
         val pubKey = File(context.filesDir, "adbkey.pub")
