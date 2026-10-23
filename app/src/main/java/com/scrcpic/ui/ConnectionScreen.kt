@@ -12,11 +12,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.SettingsEthernet
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.DropdownMenuItem
@@ -26,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -45,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.scrcpic.adb.AdbManager
 import com.scrcpic.adb.AdbPairingManager
+import com.scrcpic.discovery.BeaconDiscoveryManager
 import com.scrcpic.scrcpy.SessionState
 import com.scrcpic.usb.UsbAdbManager
 import kotlinx.coroutines.launch
@@ -60,6 +67,7 @@ fun ConnectionScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val pairingManager = remember { AdbPairingManager(context) }
+    val discoveryManager = remember { BeaconDiscoveryManager(context) }
     val sharedPrefs = remember { context.getSharedPreferences("ScrcpicPrefs", android.content.Context.MODE_PRIVATE) }
 
     var savedIps by remember { 
@@ -79,6 +87,7 @@ fun ConnectionScreen(
     var switchStatusIsError by remember { mutableStateOf(false) }
 
     var showPairingDialog by remember { mutableStateOf(false) }
+    var showDiscoveryScreen by remember { mutableStateOf(false) }
 
     // Check persistent pairing validation status
     var isCurrentDevicePaired by remember { mutableStateOf(false) }
@@ -95,6 +104,26 @@ fun ConnectionScreen(
     val presets = remember { DefaultQualityPresets }
     var selectedPreset by remember { mutableStateOf(presets[0]) }
     val isConnecting = sessionState is SessionState.Connecting
+
+    if (showDiscoveryScreen) {
+        DeviceDiscoveryScreen(
+            discoveryManager = discoveryManager,
+            onDeviceSelected = { selectedIp, selectedPort ->
+                ipAddress = selectedIp
+                portText = selectedPort.toString()
+                val newSet = savedIps.toMutableSet().apply { add(selectedIp) }
+                sharedPrefs.edit()
+                    .putString("last_used_ip", selectedIp)
+                    .putStringSet("saved_ips", newSet)
+                    .apply()
+                savedIps = newSet.toList()
+                showDiscoveryScreen = false
+                onConnect(selectedIp, selectedPort, selectedPreset, turnScreenOffOnConnect, false)
+            },
+            onBack = { showDiscoveryScreen = false }
+        )
+        return
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -235,6 +264,69 @@ fun ConnectionScreen(
                                 unfocusedContainerColor = Color(0x400F172A)
                             )
                         )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // On-Demand Beacon Discovery Launcher Button
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0x200284C7),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, Color(0xFF0284C7), RoundedCornerShape(12.dp))
+                            .clickable(enabled = !isConnecting) {
+                                showDiscoveryScreen = true
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .background(
+                                        brush = Brush.linearGradient(
+                                            colors = listOf(Color(0xFF0284C7), Color(0xFF38BDF8))
+                                        ),
+                                        shape = CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Radar,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Find Remote Phone (Beacon)",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = "Instant 1-tap discovery for broken screen devices",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF94A3B8)
+                                )
+                            }
+
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = null,
+                                tint = Color(0xFF38BDF8),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))

@@ -48,7 +48,7 @@ fun FileManagerScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     
-    var currentPath by remember { mutableStateOf("/sdcard/") }
+    var currentPath by remember { mutableStateOf("/storage/emulated/0") }
     var files by remember { mutableStateOf<List<RemoteFile>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var transferProgress by remember { mutableStateOf<String?>(null) }
@@ -56,18 +56,21 @@ fun FileManagerScreen(
     fun loadFiles(path: String) {
         isLoading = true
         coroutineScope.launch {
-            files = remoteFileManager.listFiles(path)
-            currentPath = path
+            val cleanPath = if (path.endsWith("/") && path != "/") path.removeSuffix("/") else path
+            files = remoteFileManager.listFiles(cleanPath)
+            currentPath = cleanPath
             isLoading = false
         }
     }
     
     BackHandler {
-        if (currentPath == "/" || currentPath == "/sdcard/") {
+        val cleanPath = currentPath.removeSuffix("/")
+        if (cleanPath == "/storage" || cleanPath == "" || cleanPath == "/") {
             onClose()
         } else {
-            val parent = currentPath.substringBeforeLast("/", "")
-            loadFiles(if (parent.isEmpty()) "/" else parent)
+            val parent = cleanPath.substringBeforeLast("/", "")
+            val target = if (parent.isEmpty()) "/storage" else parent
+            loadFiles(target)
         }
     }
     
@@ -191,6 +194,13 @@ fun FileManagerScreen(
                             onClick = {
                                 if (file.isDirectory) {
                                     loadFiles(file.path)
+                                } else {
+                                    coroutineScope.launch {
+                                        val success = remoteFileManager.openFileRemote(file.path)
+                                        if (!success) {
+                                            Toast.makeText(context, "Cannot open file natively on remote device", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
                                 }
                             },
                             onDownload = {

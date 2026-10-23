@@ -13,8 +13,11 @@
   <a href="https://github.com/bayazidzaman/scrcpic/releases/latest">
     <img src="https://img.shields.io/github/v/release/bayazidzaman/scrcpic?style=for-the-badge&color=22C55E&label=Latest%20Release" alt="Latest Release"/>
   </a>
-  <a href="https://github.com/bayazidzaman/scrcpic/releases/download/v1.2.0/Scrcpic-v1.2.0-release.apk">
-    <img src="https://img.shields.io/badge/Download-Latest%20APK%20(v1.2.0)-0EA5E9?style=for-the-badge&logo=android&logoColor=white" alt="Download Latest APK"/>
+  <a href="https://github.com/bayazidzaman/scrcpic/releases/download/v1.3.0/Scrcpic-v1.3.0.apk">
+    <img src="https://img.shields.io/badge/Download-Scrcpic%20Controller%20(v1.3.0)-0EA5E9?style=for-the-badge&logo=android&logoColor=white" alt="Download Scrcpic Controller APK"/>
+  </a>
+  <a href="https://github.com/bayazidzaman/scrcpic/releases/download/v1.3.0/Scrcpic-Beacon-v1.0.0.apk">
+    <img src="https://img.shields.io/badge/Download-Scrcpic%20Beacon%20(v1.0.0)-10B981?style=for-the-badge&logo=android&logoColor=white" alt="Download Scrcpic Beacon APK"/>
   </a>
   <img src="https://img.shields.io/badge/Platform-Android%208.0+-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Platform: Android"/>
   <img src="https://img.shields.io/badge/Protocol-Scrcpy%20v4.1-FF6F00?style=for-the-badge" alt="Scrcpy v4.1 Protocol"/>
@@ -43,6 +46,7 @@
   - [Mode 1: Wireless Wi-Fi Connection](#mode-1-wireless-wi-fi-connection)
   - [Mode 2: Direct USB-C OTG Cable Link](#mode-2-direct-usb-c-otg-cable-link)
   - [Mode 3: Android 11+ Wireless Pairing Assistant](#mode-3-android-11-wireless-pairing-assistant)
+  - [Mode 4: Broken Screen Recovery via Scrcpic Beacon](#mode-4-broken-screen-recovery-via-scrcpic-beacon-new-in-v130)
 - [⚙️ Streaming Presets & Performance](#️-streaming-presets--performance)
 - [🛠️ Architecture & Technical Design](#️-architecture--technical-design)
 - [❓ Frequently Asked Questions (FAQ)](#-frequently-asked-questions-faq)
@@ -83,6 +87,10 @@ With Scrcpic, an Android phone acts as the **master controller**, connecting to 
 
 ## ✨ Features & Highlights
 
+- 📡 **On-Demand Beacon Auto-Discovery (New in v1.3.0):**
+  - Instant 1-tap radar discovery for remote devices over local Wi-Fi or Mobile Hotspots without manually looking up or typing changing dynamic DHCP IP addresses.
+- 🪶 **Headless Companion App — Scrcpic Beacon (New in v1.3.0):**
+  - Ultra-lightweight (~50KB), 0-UI background listener specifically crafted for shattered touchscreen Android phones. Runs silently, auto-starts on boot, consumes 0% CPU, and answers discovery queries on-demand in milliseconds.
 - ⚡ **Zero-Lag Hardware Video Pipeline:** Direct H.264 (AVC) and H.265 (HEVC) hardware decoding via Android's native `MediaCodec` and low-latency `SurfaceView`.
 - 🎮 **Full Multi-Touch & Navigation Input:**
   - Forward single and multi-touch gestures (tap, swipe, pinch-to-zoom, scroll).
@@ -160,6 +168,25 @@ With Scrcpic, an Android phone acts as the **master controller**, connecting to 
 3. In Scrcpic, tap the **Pair Device** button.
 4. Input the IP, pairing port, and 6-digit code, then tap **Pair Device**.
 5. Once pairing succeeds, tap **Connect Now** to begin mirroring immediately.
+
+### Mode 4: Broken Screen Recovery via Scrcpic Beacon (New in v1.3.0)
+
+For devices with completely broken or unresponsive screens where you cannot check changing DHCP IP addresses:
+
+1. **One-Time Setup (at home with PC):**
+   - Install Scrcpic Beacon onto the broken phone via ADB:
+     ```bash
+     adb install Scrcpic-Beacon-v1.0.0.apk
+     adb shell am start -n com.scrcpic.beacon/.HeadlessTriggerActivity
+     ```
+   - Ensure your client phone's Wi-Fi hotspot SSID and password are saved on the broken phone.
+2. **On the Go (Zero PC Required):**
+   - Turn on Mobile Hotspot (or connect to the same Wi-Fi) on your primary phone.
+   - The broken phone will auto-connect to the hotspot.
+   - Open **Scrcpic** on your primary phone and tap **Find Remote Phone (Beacon)**.
+   - Tap **FIND PHONE**.
+   - Within 1 second, your broken phone's live IP and model appear with a green **BEACON READY** badge.
+   - Tap **Connect** to immediately view and control your broken phone!
 
 ---
 

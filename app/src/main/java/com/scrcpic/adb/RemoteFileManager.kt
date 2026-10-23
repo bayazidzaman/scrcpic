@@ -58,6 +58,27 @@ class RemoteFileManager(private val dadb: Dadb) {
         result.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
     }
 
+    suspend fun openFileRemote(path: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val lowerName = path.lowercase()
+            val mimeType = when {
+                lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg") || lowerName.endsWith(".png") || lowerName.endsWith(".gif") || lowerName.endsWith(".webp") || lowerName.endsWith(".bmp") -> "image/*"
+                lowerName.endsWith(".mp4") || lowerName.endsWith(".mkv") || lowerName.endsWith(".webm") || lowerName.endsWith(".avi") || lowerName.endsWith(".mov") -> "video/*"
+                lowerName.endsWith(".mp3") || lowerName.endsWith(".wav") || lowerName.endsWith(".ogg") || lowerName.endsWith(".m4a") || lowerName.endsWith(".flac") -> "audio/*"
+                lowerName.endsWith(".pdf") -> "application/pdf"
+                lowerName.endsWith(".txt") || lowerName.endsWith(".log") || lowerName.endsWith(".md") || lowerName.endsWith(".csv") -> "text/plain"
+                lowerName.endsWith(".apk") -> "application/vnd.android.package-archive"
+                else -> "*/*"
+            }
+            
+            val response = dadb.shell("am start -a android.intent.action.VIEW -d \"file://$path\" -t \"$mimeType\"")
+            return@withContext response.exitCode == 0
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception opening file at $path", e)
+            return@withContext false
+        }
+    }
+
     suspend fun pullFile(remotePath: String, localFile: File): Boolean = withContext(Dispatchers.IO) {
         try {
             dadb.pull(localFile, remotePath)

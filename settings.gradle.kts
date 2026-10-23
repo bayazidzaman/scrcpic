@@ -25,3 +25,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Scrcpic"
 include(":app")
+include(":beacon")
