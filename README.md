@@ -92,17 +92,12 @@ With Scrcpic, an Android phone acts as the **master controller**, connecting to 
 - 🪶 **Headless Companion App — Scrcpic Beacon (New in v1.3.0):**
   - Ultra-lightweight (~50KB), 0-UI background listener specifically crafted for shattered touchscreen Android phones. Runs silently, auto-starts on boot, consumes 0% CPU, and answers discovery queries on-demand in milliseconds.
 - ⚡ **Zero-Lag Hardware Video Pipeline:** Direct H.264 (AVC) and H.265 (HEVC) hardware decoding via Android's native `MediaCodec` and low-latency `SurfaceView`.
-- 🎮 **Full Multi-Touch & Navigation Input:**
-  - Forward single and multi-touch gestures (tap, swipe, pinch-to-zoom, scroll).
-  - Dedicated virtual navigation controls: **Back**, **Home**, **App Switcher (Recents)**, **Power / Screen Wake**, and **Volume**.
-- 📂 **Built-in File Manager (New in v1.2.0):**
-  - Integrated ADB-based file manager to browse the remote device's storage.
-  - Push files to the remote device or pull files directly to your local `Downloads/Scrcpic` folder.
+- 🎮 **Full Multi-Touch & Natural Touch Scrolling:**
+  - Forward single and multi-touch gestures (tap, swipe, pinch-to-zoom, inertial glide scroll) with 100% full-canvas coverage and zero edge deadzones.
+  - Dedicated virtual navigation dock: **Back**, **Home (Minimize)**, **App Switcher (Recents)**, **Power / Screen Wake**, and **Display Off / On**.
+  - Seamless native Android back gesture integration (`BackHandler`).
 - 📋 **Seamless Clipboard Sync (New in v1.2.0):**
   - Bi-directional clipboard sharing. Text copied on the remote device is automatically synced to the local device, and vice versa.
-- 🖐️ **Smart Navigation Gestures (New in v1.2.0):**
-  - Swipe up from the bottom edge of the mirrored screen to instantly minimize the remote phone (Home).
-  - Swipe up and hold to open the remote App Switcher (Recents).
 - 🔄 **Rock-Solid Background Auto-Recovery (New in v1.1.0):**
   - Seamlessly handles app minimizing, multitasking, and screen lock events.
   - Automatically reconstructs the hardware decoder surface and requests a new keyframe instantly.

@@ -54,14 +54,8 @@ object ControlMessage {
         screenWidth: Int,
         screenHeight: Int,
         pressure: Float = 1.0f,
-        actionButton: Int = when (action) {
-            ACTION_DOWN, ACTION_UP -> 1
-            else -> 0
-        },
-        buttons: Int = when (action) {
-            ACTION_UP -> 0
-            else -> 1
-        }
+        actionButton: Int = 0,
+        buttons: Int = 0
     ): ByteArray {
         val baos = ByteArrayOutputStream(32)
         val dos = DataOutputStream(baos)

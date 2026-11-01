@@ -50,6 +50,32 @@ class ScrcpyProtocolTest {
     }
 
     @Test
+    fun testTouchEventDefaultsForFingerTouch() {
+        val bytes = ControlMessage.createTouchEvent(
+            action = ControlMessage.ACTION_MOVE,
+            pointerId = 2L,
+            x = 300,
+            y = 600,
+            screenWidth = 1080,
+            screenHeight = 2400
+        )
+
+        assertEquals(32, bytes.size)
+        val buf = ByteBuffer.wrap(bytes)
+        assertEquals(ControlMessage.TYPE_INJECT_TOUCH_EVENT.toByte(), buf.get())
+        assertEquals(ControlMessage.ACTION_MOVE.toByte(), buf.get())
+        assertEquals(2L, buf.long)
+        assertEquals(300, buf.int)
+        assertEquals(600, buf.int)
+        assertEquals(1080, buf.short.toInt() and 0xFFFF)
+        assertEquals(2400, buf.short.toInt() and 0xFFFF)
+        assertEquals(0xFFFF, buf.short.toInt() and 0xFFFF)
+        // ActionButton and Buttons should default to 0 for finger touch
+        assertEquals(0, buf.int)
+        assertEquals(0, buf.int)
+    }
+
+    @Test
     fun testKeycodeEventSerialization() {
         val bytes = ControlMessage.createKeycodeEvent(
             action = ControlMessage.ACTION_DOWN,

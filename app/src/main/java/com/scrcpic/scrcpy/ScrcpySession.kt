@@ -38,8 +38,6 @@ class ScrcpySession(
     val usbAdbManager = com.scrcpic.usb.UsbAdbManager(context)
     val coordinateTransformer = CoordinateTransformer()
 
-    fun getDadbInstance() = adbManager.getDadb()
-
     private val _state = MutableStateFlow<SessionState>(SessionState.Idle)
     val state: StateFlow<SessionState> = _state.asStateFlow()
 

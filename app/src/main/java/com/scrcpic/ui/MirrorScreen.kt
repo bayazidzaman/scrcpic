@@ -2,7 +2,6 @@ package com.scrcpic.ui
 
 import android.annotation.SuppressLint
 import android.content.pm.ActivityInfo
-import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -41,7 +40,6 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -68,7 +66,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.scrcpic.control.ControlMessage
 import com.scrcpic.scrcpy.ScrcpySession
 import com.scrcpic.scrcpy.SessionState
-import com.scrcpic.adb.RemoteFileManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -93,7 +90,6 @@ fun MirrorScreen(
 
     var showControls by remember { mutableStateOf(true) }
     var isPhysicalScreenOff by remember { mutableStateOf(initialScreenOff) }
-    var showFileManager by remember { mutableStateOf(false) }
 
     LaunchedEffect(sessionState) {
         if (sessionState is SessionState.Connected) {
@@ -140,14 +136,6 @@ fun MirrorScreen(
         val fabSizePx = with(density) { 46.dp.toPx() }
         val maxFabX = (constraints.maxWidth - fabSizePx).coerceAtLeast(0f)
         val maxFabY = (constraints.maxHeight - fabSizePx).coerceAtLeast(0f)
-
-        if (showFileManager && session.getDadbInstance() != null) {
-            FileManagerScreen(
-                remoteFileManager = RemoteFileManager(session.getDadbInstance()!!),
-                onClose = { showFileManager = false }
-            )
-            return@BoxWithConstraints
-        }
 
         var fabOffsetX by remember { mutableStateOf(-1f) }
         var fabOffsetY by remember { mutableStateOf(-1f) }
@@ -222,12 +210,8 @@ fun MirrorScreen(
                         }
                     })
 
-                    var downX = 0f
-                    var downY = 0f
-                    var downTime = 0L
-                    var gestureConsumed = false
-                    var isTopEdge = false
-                    var isBottomEdge = false
+                    var lastMoveTimestamp = 0L
+                    val moveThrottleMs = 8L // ~120 FPS move ceiling to avoid TCP socket congestion while maintaining instant responsiveness
 
                     setOnTouchListener { v, event ->
                         val ctrl = session.controller
@@ -235,155 +219,109 @@ fun MirrorScreen(
                         val videoH = session.scrcpyVideoHeight
 
                         if (ctrl != null && videoW > 0 && videoH > 0) {
-                            val dispDensity = v.resources.displayMetrics.density
-                            val edgeThreshold = 60f * dispDensity // 60dp top/bottom edge trigger zone (optimized)
-                            val triggerDistance = 50f * dispDensity // 50dp swipe movement to prevent accidental scrolls
+                            session.coordinateTransformer.updateDimensions(
+                                videoW = videoW,
+                                videoH = videoH,
+                                containerW = v.width,
+                                containerH = v.height
+                            )
 
                             when (event.actionMasked) {
-                                MotionEvent.ACTION_DOWN -> {
-                                    downX = event.x
-                                    downY = event.y
-                                    downTime = event.eventTime
-                                    gestureConsumed = false
-                                    isTopEdge = downY <= edgeThreshold
-                                    isBottomEdge = downY >= (v.height - edgeThreshold)
-
-                                    // If not starting in an edge zone, forward DOWN immediately for instant touch response
-                                    if (!isTopEdge && !isBottomEdge) {
-                                        session.coordinateTransformer.updateDimensions(
-                                            videoW = videoW,
-                                            videoH = videoH,
-                                            containerW = v.width,
-                                            containerH = v.height
+                                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                                    val index = event.actionIndex
+                                    val pointerId = event.getPointerId(index).toLong()
+                                    val targetPoint = session.coordinateTransformer.toTargetCoordinates(event.getX(index), event.getY(index))
+                                    if (targetPoint != null) {
+                                        ctrl.sendTouchEvent(
+                                            action = ControlMessage.ACTION_DOWN,
+                                            pointerId = pointerId,
+                                            x = targetPoint.x,
+                                            y = targetPoint.y,
+                                            screenWidth = videoW,
+                                            screenHeight = videoH,
+                                            pressure = event.getPressure(index)
                                         )
-                                        val targetPoint = session.coordinateTransformer.toTargetCoordinates(event.x, event.y)
-                                        if (targetPoint != null) {
-                                            ctrl.sendTouchEvent(
-                                                action = ControlMessage.ACTION_DOWN,
-                                                pointerId = event.getPointerId(0).toLong(),
-                                                x = targetPoint.x,
-                                                y = targetPoint.y,
-                                                screenWidth = videoW,
-                                                screenHeight = videoH,
-                                                pressure = event.pressure
-                                            )
-                                        }
                                     }
                                 }
 
                                 MotionEvent.ACTION_MOVE -> {
-                                    val deltaX = event.x - downX
-                                    val deltaY = event.y - downY
-                                    val absDeltaX = kotlin.math.abs(deltaX)
-                                    val absDeltaY = kotlin.math.abs(deltaY)
-
-                                    if (!gestureConsumed) {
-                                        if (isTopEdge && deltaY > triggerDistance && absDeltaY > absDeltaX * 1.1f) {
-                                            // Top Edge Swipe Down: Pull down remote notifications!
-                                            gestureConsumed = true
-                                            v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                                            ctrl.expandNotificationPanel()
-                                        } else if (isBottomEdge && deltaY < -triggerDistance && absDeltaY > absDeltaX * 1.1f) {
-                                            // Bottom Edge Swipe Up: Remote Home (Minimize) or Recents
-                                            // Just mark consumed so we don't send touches. We will execute on ACTION_UP.
-                                            gestureConsumed = true
-                                        } else if (!isTopEdge && !isBottomEdge) {
-                                            // Normal touch move in content area
-                                            session.coordinateTransformer.updateDimensions(
-                                                videoW = videoW,
-                                                videoH = videoH,
-                                                containerW = v.width,
-                                                containerH = v.height
-                                            )
-                                            val targetPoint = session.coordinateTransformer.toTargetCoordinates(event.x, event.y)
+                                    val now = android.os.SystemClock.uptimeMillis()
+                                    if (now - lastMoveTimestamp >= moveThrottleMs) {
+                                        lastMoveTimestamp = now
+                                        for (index in 0 until event.pointerCount) {
+                                            val pointerId = event.getPointerId(index).toLong()
+                                            val targetPoint = session.coordinateTransformer.toTargetCoordinates(event.getX(index), event.getY(index))
                                             if (targetPoint != null) {
                                                 ctrl.sendTouchEvent(
                                                     action = ControlMessage.ACTION_MOVE,
-                                                    pointerId = event.getPointerId(0).toLong(),
+                                                    pointerId = pointerId,
                                                     x = targetPoint.x,
                                                     y = targetPoint.y,
                                                     screenWidth = videoW,
                                                     screenHeight = videoH,
-                                                    pressure = event.pressure
+                                                    pressure = event.getPressure(index)
                                                 )
                                             }
                                         }
                                     }
                                 }
 
-                                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                                    if (gestureConsumed) {
-                                        val deltaY = event.y - downY
-                                        if (isBottomEdge && deltaY < -triggerDistance) {
-                                            v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                                            val elapsed = event.eventTime - downTime
-                                            if (elapsed >= 250L) {
-                                                ctrl.sendRecents()
-                                            } else {
-                                                ctrl.sendHome()
-                                            }
-                                        }
-                                        // Gesture executed; reset
-                                        gestureConsumed = false
-                                        isTopEdge = false
-                                        isBottomEdge = false
-                                    } else if (isTopEdge || isBottomEdge) {
-                                        // Tap in edge zone without swipe: forward as tap
-                                        session.coordinateTransformer.updateDimensions(
-                                            videoW = videoW,
-                                            videoH = videoH,
-                                            containerW = v.width,
-                                            containerH = v.height
+                                MotionEvent.ACTION_POINTER_UP -> {
+                                    val index = event.actionIndex
+                                    val pointerId = event.getPointerId(index).toLong()
+                                    val targetPoint = session.coordinateTransformer.toTargetCoordinates(event.getX(index), event.getY(index))
+                                    if (targetPoint != null) {
+                                        ctrl.sendTouchEvent(
+                                            action = ControlMessage.ACTION_UP,
+                                            pointerId = pointerId,
+                                            x = targetPoint.x,
+                                            y = targetPoint.y,
+                                            screenWidth = videoW,
+                                            screenHeight = videoH,
+                                            pressure = 0f
                                         )
-                                        val targetDownPoint = session.coordinateTransformer.toTargetCoordinates(downX, downY)
-                                        val targetUpPoint = session.coordinateTransformer.toTargetCoordinates(event.x, event.y)
-                                        if (targetDownPoint != null && targetUpPoint != null) {
-                                            ctrl.sendTouchEvent(
-                                                action = ControlMessage.ACTION_DOWN,
-                                                pointerId = event.getPointerId(0).toLong(),
-                                                x = targetDownPoint.x,
-                                                y = targetDownPoint.y,
-                                                screenWidth = videoW,
-                                                screenHeight = videoH,
-                                                pressure = 1.0f
-                                            )
-                                            ctrl.sendTouchEvent(
-                                                action = ControlMessage.ACTION_UP,
-                                                pointerId = event.getPointerId(0).toLong(),
-                                                x = targetUpPoint.x,
-                                                y = targetUpPoint.y,
-                                                screenWidth = videoW,
-                                                screenHeight = videoH,
-                                                pressure = event.pressure
-                                            )
-                                        }
-                                        isTopEdge = false
-                                        isBottomEdge = false
-                                    } else {
-                                        // Normal touch release in content area
-                                        session.coordinateTransformer.updateDimensions(
-                                            videoW = videoW,
-                                            videoH = videoH,
-                                            containerW = v.width,
-                                            containerH = v.height
+                                    }
+                                }
+
+                                MotionEvent.ACTION_UP -> {
+                                    val index = event.actionIndex
+                                    val pointerId = event.getPointerId(index).toLong()
+                                    val targetPoint = session.coordinateTransformer.toTargetCoordinates(event.getX(index), event.getY(index))
+                                    if (targetPoint != null) {
+                                        ctrl.sendTouchEvent(
+                                            action = ControlMessage.ACTION_UP,
+                                            pointerId = pointerId,
+                                            x = targetPoint.x,
+                                            y = targetPoint.y,
+                                            screenWidth = videoW,
+                                            screenHeight = videoH,
+                                            pressure = 0f
                                         )
-                                        val targetPoint = session.coordinateTransformer.toTargetCoordinates(event.x, event.y)
+                                    }
+                                }
+
+                                MotionEvent.ACTION_CANCEL -> {
+                                    for (index in 0 until event.pointerCount) {
+                                        val pointerId = event.getPointerId(index).toLong()
+                                        val targetPoint = session.coordinateTransformer.toTargetCoordinates(event.getX(index), event.getY(index))
                                         if (targetPoint != null) {
                                             ctrl.sendTouchEvent(
                                                 action = ControlMessage.ACTION_UP,
-                                                pointerId = event.getPointerId(0).toLong(),
+                                                pointerId = pointerId,
                                                 x = targetPoint.x,
                                                 y = targetPoint.y,
                                                 screenWidth = videoW,
                                                 screenHeight = videoH,
-                                                pressure = event.pressure
+                                                pressure = 0f
                                             )
                                         }
                                     }
                                 }
                             }
+                            true
+                        } else {
+                            false
                         }
-                        true
                     }
                 }
             }
@@ -508,13 +446,6 @@ fun MirrorScreen(
                         contentDescription = "Remote Power",
                         tint = Color(0xFFF87171),
                         onClick = { session.controller?.sendPower() }
-                    )
-
-                    DockButton(
-                        icon = Icons.Default.Folder,
-                        contentDescription = "File Manager",
-                        tint = Color(0xFF38BDF8),
-                        onClick = { showFileManager = true }
                     )
 
                     DockButton(
